@@ -22,30 +22,59 @@ def manhattan(grid, h, w, x, y):
         for k in range(w):
             manhattan[i][k] = abs(i - y) + abs(k - x)
     return manhattan
- 
+
+def get_direction(p1, p2):
+    xd = p2[0] - p1[0]
+    yd = p2[1] - p1[1]
+    if xd:
+        xd = xd // abs(xd)
+    if yd:
+        yd = yd // abs(yd)
+    return (xd, yd)
+
 class Pac():
-    def __init__(self, pacid, x, y):
-        self.pid = int(pacid)
+    def __init__(self, pacid, x, y, pac_type, speed, cd):
+        self.pid = pacid
         self.x = int(x)
         self.y = int(y)
+        self.pac_type = pac_type
+        self.speed = int(speed)
+        self.cd = int(cd)
+        self.alive = True
+        self.collision = False
+        self.target = None
     
-    def update(self, x, y):
+    def update(self, x, y, pac_type, speed, cd):
+        if self.x == int(x) and self.y == int(y):
+            self.collision = True
+        else:
+            self.collision = False
         self.x = int(x)
         self.y = int(y)
+        self.pac_type = pac_type
+        self.speed = int(speed)
+        self.cd = int(cd)
+        self.alive = True
     
     def simple_move(self, map, h, w):
+        if not self.cd:
+            return f"SPEED {self.pid}"
         dist_grid = manhattan(map, h, w, self.x, self.y)
-        closest = (sys.maxsize, sys.maxsize)
+        closest = None
         closest_dist = sys.maxsize
         me = (self.x, self.y)
         for y in range(h):
             for x in range(w):
                 if map[y][x] > 0 and closest_dist > dist_grid[y][x]:
+                    # if self.collision and self.target and get_direction(me, (x, y)) == get_direction(me, self.target):
+                    #     continue
                     closest = (x, y)
                     closest_dist = dist_grid[y][x]
-        print(f"MOVE {self.pid} {closest[0]} {closest[1]}")
-
-
+        self.target = closest
+        if closest:
+            return f"MOVE {self.pid} {closest[0]} {closest[1]}"
+        else:
+            return None
 
 class Game():
     def __init__(self, height, width, raw_map):
@@ -55,10 +84,11 @@ class Game():
         self.turn_map = None
         self.visible_pacs = dict()
         self.visible_pellets = dict()
-        self.mypac = None
-        self.enpac = None
+        self.mypacs = dict()
+        self.enpacs = dict()
         self.my_score = 0
         self.en_score = 0
+        self.turn = ""
 
     def __str__(self):
         s = ""
@@ -79,7 +109,7 @@ class Game():
         return map
 
     def read_visible_pacs(self):
-        self.visible_pacs = dict()
+        self.set_pacs_dead()
         visible_pac_count = int(input())  # all your pacs and enemy pacs in sight
         for i in range(visible_pac_count):
             # pac_id: pac number (unique within a team)
@@ -90,20 +120,22 @@ class Game():
             # speed_turns_left: unused in wood leagues
             # ability_cooldown: unused in wood leagues
             pac_id, mine, x, y, type_id, speed_turns_left, ability_cooldown = input().split()
+            pac_id = int(pac_id)
             print(f"{pac_id} | {mine} | {x} {y}", file=sys.stderr)
             mine = mine == '1'
             if mine:
-                if self.mypac:
-                    self.mypac.update(x, y)
+                if pac_id in self.mypacs.keys():
+                    self.mypacs[pac_id].update(x, y, type_id, speed_turns_left, ability_cooldown)
                 else:
-                    self.mypac = Pac(pac_id, x, y)
+                    self.mypacs[pac_id] = Pac(pac_id, x, y, type_id, speed_turns_left, ability_cooldown)
+                print(f"Alive: {self.mypacs[pac_id].alive}", file=sys.stderr)
             else:
-                if self.enpac:
-                    self.enpac.update(x, y)
+                if pac_id in self.enpacs.keys():
+                    self.enpacs[pac_id].update(x, y, type_id, speed_turns_left, ability_cooldown)
                 else:
-                    self.enpac = Pac(pac_id, x, y)
-            speed_turns_left = int(speed_turns_left)
-            ability_cooldown = int(ability_cooldown)
+                    self.enpacs[pac_id] = Pac(pac_id, x, y, type_id, speed_turns_left, ability_cooldown)
+        self.remove_dead_pacs()
+        print(self.mypacs.keys(), file=sys.stderr)
     
     def read_visible_pellets(self):
         self.visible_pellets = dict()
@@ -113,11 +145,39 @@ class Game():
             x, y, value = [int(j) for j in input().split()]
             self.visible_pellets[(x, y)] = value
             self.turn_map[y][x] = value
-        self.turn_map[self.enpac.y][self.enpac.x] = -1
+        for pid, pac in self.enpacs.items():
+            self.turn_map[pac.y][pac.x] = -1
 
     def move(self):
-        self.mypac.simple_move(self.turn_map, self.height, self.width)
+        self.turn = ""
+        for pid in self.mypacs.keys():
+            new = self.mypacs[pid].simple_move(self.turn_map, self.height, self.width)
+            if new:
+                if self.turn != "":
+                    self.turn += " | " + new
+                else:
+                    self.turn += new
+        print(self.turn)
 
+    def set_pacs_dead(self):
+        for pid, pac in self.mypacs.items():
+            pac.alive = False
+        for pid, pac in self.enpacs.items():
+            pac.alive = False
+    
+    def remove_dead_pacs(self):
+        to_kill = list()
+        for pid, pac in self.mypacs.items():
+            if pac.alive == False:
+                to_kill.append(pid)
+        for pid in to_kill:
+            del self.mypacs[pid]
+        to_kill = list()  
+        for pid, pac in self.enpacs.items():
+            if pac.alive == False:
+                to_kill.append(pid)
+        for pid in to_kill:
+            del self.enpacs[pid]
 
 ## INIT
 # Grab the pellets as fast as you can!
