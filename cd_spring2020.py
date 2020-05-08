@@ -89,6 +89,11 @@ class Game():
         self.my_score = 0
         self.en_score = 0
         self.turn = ""
+        self.discovered_map = deepcopy(self.org_map)
+        for y in range(self.height):
+            for x in range(self.width):
+                if self.discovered_map[y][x] == 0:
+                    self.discovered_map[y][x] = 1
 
     def __str__(self):
         s = ""
@@ -129,6 +134,7 @@ class Game():
                 else:
                     self.mypacs[pac_id] = Pac(pac_id, x, y, type_id, speed_turns_left, ability_cooldown)
                 print(f"Alive: {self.mypacs[pac_id].alive}", file=sys.stderr)
+                self.discovered_map[int(y)][int(x)] = 0
             else:
                 if pac_id in self.enpacs.keys():
                     self.enpacs[pac_id].update(x, y, type_id, speed_turns_left, ability_cooldown)
@@ -145,6 +151,7 @@ class Game():
             x, y, value = [int(j) for j in input().split()]
             self.visible_pellets[(x, y)] = value
             self.turn_map[y][x] = value
+            self.discovered_map[y][x] = 0
         for pid, pac in self.enpacs.items():
             self.turn_map[pac.y][pac.x] = -1
 
@@ -152,6 +159,8 @@ class Game():
         self.turn = ""
         for pid in self.mypacs.keys():
             new = self.mypacs[pid].simple_move(self.turn_map, self.height, self.width)
+            if not new:
+                new =  self.mypacs[pid].simple_move(self.discovered_map, self.height, self.width)
             if new:
                 if self.turn != "":
                     self.turn += " | " + new
