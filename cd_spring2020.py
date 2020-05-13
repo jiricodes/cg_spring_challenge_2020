@@ -10,6 +10,16 @@ DOWN = (0, 1)
 
 DIRECTIONS = (LEFT, RIGHT, UP, DOWN)
 
+SEPARATOR = " | "
+
+def win_type(type_to_beat):
+    if type_to_beat == "ROCK":
+        return "PAPER"
+    elif type_to_beat == "PAPER":
+        return "SCISSORS"
+    else:
+        return "ROCK"
+
 class Map():
     def __init__(self, height, width, raw_data):
         self.height = height
@@ -132,7 +142,7 @@ class Pac():
         self.alive = True
     
     def simple_move(self, map, visible, already_taken):
-        if not self.cd:
+        if not self.cd and not self.collision:
             return f"SPEED {self.pid}"
         dist_grid = map.manhattan(self.x, self.y)
         closest = None
@@ -157,9 +167,10 @@ class Pac():
     def direction_move(self, direction):
         return f"MOVE {self.pid} {self.x + direction[0]} {self.y + direction[1]}"
     
-    def switch(self):
+    def switch(self, to_beat):
         if not self.cd:
-            return f"SWITCH {self.pid}"
+            new_type = win_type(to_beat)
+            return f"SWITCH {self.pid} {new_type}" 
         else:
             return None
 
@@ -171,7 +182,7 @@ class Game():
         self.enpacs = dict()
         self.my_score = 0
         self.en_score = 0
-        self.turn = ""
+        self.turn = list()
         self.collision_tuples = list()
         self.moved = list()
 
@@ -179,7 +190,7 @@ class Game():
         pass
 
     def game_action(self):
-        self.turn = ""
+        self.turn = list()
         self.moved = list()
         self.my_score, self.en_score = [int(i) for i in input().split()]
         self.read_visible_pacs()
@@ -210,8 +221,20 @@ class Game():
                     print("Appending", file=sys.stderr)
                     opid = collided.pop(opid_i)
                     self.collision_tuples.append((pid, opid))
+                else:
+                    new = p1.switch(p1.pac_type)
+                    if new:
+                        self.turn.append(new)
+                        self.moved.append(pid)
             print(f"Collision: {self.collision_tuples}", file=sys.stderr)
-
+        elif len(collided) == 1:
+            pid = collided.pop()
+            p1 = self.mypacs[pid]
+            new = p1.switch(p1.pac_type)
+            if new:
+                self.turn.append(new)
+                self.moved.append(pid)
+            
     def resolve_collision(self):
         # Attempt to resolve current collisions
         ban = list()
@@ -223,14 +246,14 @@ class Game():
             d = self.map.check_ngb_tiles(p1.x, p1.y, ban)
             if d:
                 # P1 moves, P2 waits
-                self.turn += p1.direction_move(d)
+                self.turn.append(p1.direction_move(d))
                 self.moved.append(p1.pid)
                 self.moved.append(p2.pid)
                 continue
             d = self.map.check_ngb_tiles(p2.x, p2.y, ban)
             if d:
                 # P2 moves, P1 waits
-                self.turn += p2.direction_move(d)
+                self.turn.append(p2.direction_move(d))
                 self.moved.append(p1.pid)
                 self.moved.append(p2.pid)
             # Missing resolution if none can move
@@ -275,12 +298,9 @@ class Game():
                 new = self.mypacs[pid].simple_move(self.map, self.round_pellets, taken)
                 taken.append(self.mypacs[pid].target)
                 if new:
-                    if self.turn != "":
-                        self.turn += " | " + new
-                    else:
-                        self.turn += new
+                    self.turn.append(new)
                 self.moved.append(pid)
-        print(self.turn)
+        print(SEPARATOR.join(self.turn))
 
     def set_pacs_dead(self):
         for pid, pac in self.mypacs.items():
