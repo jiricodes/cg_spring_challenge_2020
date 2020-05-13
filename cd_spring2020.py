@@ -202,7 +202,7 @@ class Game():
                 opid_i = -1
                 for other_pid in collided:
                     p2 = self.mypacs[other_pid]
-                    if (p1.x == p2.x and abs(p1.y - p2.y) < 3) or (p1.y == p2.y and abs(p1.x - p2.x) < 3):
+                    if (p1.x == p2.x and abs(p1.y - p2.y) < 3) or (p1.y == p2.y and abs(p1.x - p2.x) < 3) or (abs(p1.y - p2.y) == 1 and abs(p1.x - p2.x) == 1):
                         opid_i = collided.index(other_pid)
                         print(f"Found collision: {pid}, {other_pid}(index {opid_i})", file=sys.stderr)
                         break
