@@ -76,6 +76,34 @@ class Map():
             for k in range(self.width):
                 manhattan[i][k] = abs(i - y) + abs(k - x)
         return manhattan
+    
+    def check_ngb_tiles(self, x, y, banned):
+        def adjust(new_x, new_y):
+            if new_x < 0:
+                new_x += self.width
+            elif new_x >= self.width:
+                new_x -= self.width
+            if new_y < 0:
+                new_y += self.height
+            elif new_y >= self.height:
+                new_y -= self.height
+            return new_x, new_y
+        
+        def check_tile(direction):
+            tx, ty = adjust(x + direction[0], y + direction[1])
+            if (tx, ty) in self.pellets:
+                return 1
+            elif (tx, ty) in banned:
+                return -1
+            return self.grid[ty][tx]
+        tmp = None
+        for d in DIRECTIONS:
+            ret = check_tile(d)
+            if ret == 1:
+                return d
+            elif ret == 0:
+                tmp = d
+        return tmp
 
 class Pac():
     def __init__(self, pacid, x, y, pac_type, speed, cd):
@@ -88,12 +116,14 @@ class Pac():
         self.alive = True
         self.collision = False
         self.target = None
+        self.direction = None
     
     def update(self, x, y, pac_type, speed, cd):
         if self.x == int(x) and self.y == int(y):
             self.collision = True
         else:
             self.collision = False
+            # self.direction = (int(x) - self.x)
         self.x = int(x)
         self.y = int(y)
         self.pac_type = pac_type
@@ -101,7 +131,7 @@ class Pac():
         self.cd = int(cd)
         self.alive = True
     
-    def simple_move(self, map):
+    def simple_move(self, map, visible, already_taken):
         if not self.cd:
             return f"SPEED {self.pid}"
         dist_grid = map.manhattan(self.x, self.y)
@@ -115,7 +145,7 @@ class Pac():
         if closest:
             return f"MOVE {self.pid} {closest[0]} {closest[1]}"
         for pel in map.pellets:
-            if closest_dist > dist_grid[pel[1]][pel[0]]:
+            if closest_dist > dist_grid[pel[1]][pel[0]] and not pel in already_taken:
                 closest = pel
                 closest_dist = dist_grid[pel[1]][pel[0]]
         self.target = closest
@@ -124,10 +154,8 @@ class Pac():
         else:
             return None
 
-    def directed_move(self, point):
-        if not self.cd:
-            return f"SPEED {self.pid}"
-        return f"MOVE {self.pid} {point[0]} {point[1]}"
+    def direction_move(self, direction):
+        return f"MOVE {self.pid} {self.x + direction[0]} {self.y + direction[1]}"
     
     def switch(self):
         if not self.cd:
@@ -144,20 +172,68 @@ class Game():
         self.my_score = 0
         self.en_score = 0
         self.turn = ""
+        self.collision_tuples = list()
+        self.moved = list()
 
     def __str__(self):
         pass
 
     def game_action(self):
+        self.turn = ""
+        self.moved = list()
         self.my_score, self.en_score = [int(i) for i in input().split()]
         self.read_visible_pacs()
         self.read_visible_pellets()
         self.update()
+        self.resolve_collision()
         self.move()
 
     def update(self):
+        self.collision_tuples = list()
+        collided = list()
         for pid, pac in self.mypacs.items():
             self.map.update_map(pac.x, pac.y, self.round_pellets)
+            if pac.collision:
+                collided.append(pid)
+        if len(collided) > 1:
+            while collided:
+                pid = collided.pop()
+                p1 = self.mypacs[pid]
+                opid_i = -1
+                for other_pid in collided:
+                    p2 = self.mypacs[other_pid]
+                    if (p1.x == p2.x and abs(p1.y - p2.y) < 3) or (p1.y == p2.y and abs(p1.x - p2.x) < 3):
+                        opid_i = collided.index(other_pid)
+                        print(f"Found collision: {pid}, {other_pid}(index {opid_i})", file=sys.stderr)
+                        break
+                if opid_i != -1:
+                    print("Appending", file=sys.stderr)
+                    opid = collided.pop(opid_i)
+                    self.collision_tuples.append((pid, opid))
+            print(f"Collision: {self.collision_tuples}", file=sys.stderr)
+
+    def resolve_collision(self):
+        # Attempt to resolve current collisions
+        ban = list()
+        for pid, pac in self.mypacs.items():
+            ban.append((pac.x, pac.y))
+        for incident in self.collision_tuples:
+            p1 = self.mypacs[incident[0]]
+            p2 = self.mypacs[incident[1]]
+            d = self.map.check_ngb_tiles(p1.x, p1.y, ban)
+            if d:
+                # P1 moves, P2 waits
+                self.turn += p1.direction_move(d)
+                self.moved.append(p1.pid)
+                self.moved.append(p2.pid)
+                continue
+            d = self.map.check_ngb_tiles(p2.x, p2.y, ban)
+            if d:
+                # P2 moves, P1 waits
+                self.turn += p2.direction_move(d)
+                self.moved.append(p1.pid)
+                self.moved.append(p2.pid)
+            # Missing resolution if none can move
 
     def read_visible_pacs(self):
         self.set_pacs_dead()
@@ -193,14 +269,17 @@ class Game():
         print(f"Supers: {self.map.super_pellets}", file=sys.stderr)
 
     def move(self):
-        self.turn = ""
+        taken = list()
         for pid in self.mypacs.keys():
-            new = self.mypacs[pid].simple_move(self.map)
-            if new:
-                if self.turn != "":
-                    self.turn += " | " + new
-                else:
-                    self.turn += new
+            if not pid in self.moved:
+                new = self.mypacs[pid].simple_move(self.map, self.round_pellets, taken)
+                taken.append(self.mypacs[pid].target)
+                if new:
+                    if self.turn != "":
+                        self.turn += " | " + new
+                    else:
+                        self.turn += new
+                self.moved.append(pid)
         print(self.turn)
 
     def set_pacs_dead(self):
